@@ -7,10 +7,11 @@ import math
 
 
 class Waypoint:
-    def __init__(self, x: float | None, y: float | None, heading: float | None):
+    def __init__(self, x: float | None, y: float | None, heading: float | None, guess: bool | None):
         self.x = x
         self.y = y
         self.theta = heading
+        self.guess = guess if guess != None else False
 
     def x_or(self, default):
         return self.x if self.x != None else default
@@ -53,7 +54,6 @@ Constraint = Enum('Constraint', ['MAX_TRANS_VEL', 'MAX_ANG_VEL', 'VEL_DIRECTION'
 def generate_swerve_trajectory(
         waypoints: list[Waypoint],
         control_interval_counts: list[int],
-        initial_guess_points: list[list[Waypoint]],
         bumper_translations: list[tuple[float, float]],
         module_translations: list[tuple[float, float]],
         max_vel: float,
@@ -126,6 +126,7 @@ def generate_swerve_trajectory(
 
     # must hit waypoints
     for i in range(len(waypoints)):
+        if waypoints[i].guess: continue
         sample = 0 if i == 0 else sum(control_interval_counts[0:i]) - 1
         if waypoints[i].x != None:
             problem.subject_to(x[sample] == waypoints[i].x)
@@ -154,11 +155,10 @@ def generate_swerve_trajectory(
 
     # set initial guess
     cur_samp = 0
-    for sgmt in range(len(waypoints) - 1):
-        initial_guess_sgmt = [waypoints[sgmt]]
-        initial_guess_sgmt.extend(initial_guess_points[sgmt])
-        initial_guess_sgmt.append(waypoints[sgmt + 1])
-        next_samp = cur_samp + control_interval_counts[sgmt]
+    for i in range(len(waypoints) - 1):
+        initial_guess_sgmt = [waypoints[i]]
+        initial_guess_sgmt.append(waypoints[i + 1])
+        next_samp = cur_samp + control_interval_counts[i]
 
         for g in range(len(initial_guess_sgmt) - 1):
             interval = [math.floor(cur_samp + (next_samp - cur_samp) * (g / len(initial_guess_sgmt))),
@@ -192,7 +192,7 @@ def generate_swerve_trajectory(
     ax1 = plt.subplots()[1]
 
     ax1.set_title("initial guess xy")
-    ax1.plot(initial["x"], initial["y"])
+    ax1.scatter(initial["x"], initial["y"], c=np.linspace([1,0,0],[0,0,1],num=len(initial["x"])))
 
     dts = initial["dt"]
     timestamps = [0]
@@ -221,10 +221,10 @@ def generate_swerve_trajectory(
 
 # test
 test = generate_swerve_trajectory(
-    [Waypoint(0.0, 0.0, 0.0), Waypoint(0.75, 0.2, None),
-     Waypoint(2.0, 1.0, 0.0)],
+    [Waypoint(1.0, 0.0, 0.0, False),# Waypoint(0.75, 0.2, None, False),
+     Waypoint(2.0, 1.0, 0.0, False)
+     ],
     [80, 40],
-    [[], [], []],
     [(-0.5, 0.5), (0.5, 0.5), (0.5, -0.5), (-0.5, -0.5)],
     [(-0.4, 0.4), (0.4, 0.4), (0.4, -0.4), (-0.4, -0.4)],
     20.0,
