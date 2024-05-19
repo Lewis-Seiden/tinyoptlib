@@ -7,11 +7,12 @@ import math
 
 
 class Waypoint:
-    def __init__(self, x: float | None, y: float | None, heading: float | None, guess: bool | None):
+    def __init__(self, x: float | None, y: float | None, heading: float | None, resolution: int, guess: bool):
         self.x = x
         self.y = y
         self.theta = heading
-        self.guess = guess if guess != None else False
+        self.resolution = resolution
+        self.guess = guess
 
     def x_or(self, default):
         return self.x if self.x != None else default
@@ -53,7 +54,6 @@ def solve_net_torque(theta, f_x, f_y, module_translations):
 Constraint = Enum('Constraint', ['MAX_TRANS_VEL', 'MAX_ANG_VEL', 'VEL_DIRECTION'])
 def generate_swerve_trajectory(
         waypoints: list[Waypoint],
-        control_interval_counts: list[int],
         bumper_translations: list[tuple[float, float]],
         module_translations: list[tuple[float, float]],
         max_vel: float,
@@ -63,6 +63,7 @@ def generate_swerve_trajectory(
         mass: float,
         constraints: list[tuple[int, int, bool, Constraint, tuple[float, ...] | float]]
 ):
+    control_interval_counts = list(map(lambda w: w.resolution, waypoints[:-1]))
     sample_count = sum(control_interval_counts)
     bumper_radius = max(map(lambda t: math.sqrt(
         t[0] * t[0] + t[1] * t[1]), bumper_translations))
@@ -154,27 +155,32 @@ def generate_swerve_trajectory(
                 
 
     # set initial guess
-    cur_samp = 0
-    for i in range(len(waypoints) - 1):
-        initial_guess_sgmt = [waypoints[i]]
-        initial_guess_sgmt.append(waypoints[i + 1])
-        next_samp = cur_samp + control_interval_counts[i]
-
-        for g in range(len(initial_guess_sgmt) - 1):
-            interval = [math.floor(cur_samp + (next_samp - cur_samp) * (g / len(initial_guess_sgmt))),
-                        math.floor(cur_samp + (next_samp - cur_samp) * ((g + 1) / len(initial_guess_sgmt)))]
-            # handle Nones better
-            problem.set_initial(x[interval[0]: interval[1]], np.linspace(initial_guess_sgmt[g].x_or(initial_guess_sgmt[g - 1].x_or_default(
-            ) if g > 0 else initial_guess_sgmt[g + 1].x_or_default()), initial_guess_sgmt[g + 1].x_or(initial_guess_sgmt[g - 1].x_or_default(
-            ) if g > 0 else initial_guess_sgmt[g + 1].x_or_default()), interval[1] - interval[0]))
-            problem.set_initial(y[interval[0]: interval[1]], np.linspace(initial_guess_sgmt[g].y_or(initial_guess_sgmt[g - 1].y_or_default(
-            ) if g > 0 else initial_guess_sgmt[g + 1].y_or_default()), initial_guess_sgmt[g + 1].y_or(initial_guess_sgmt[g - 1].y_or_default(
-            ) if g > 0 else initial_guess_sgmt[g + 1].y_or_default()), interval[1] - interval[0]))
-            problem.set_initial(theta[interval[0]: interval[1]], np.linspace(initial_guess_sgmt[g].theta_or(initial_guess_sgmt[g - 1].theta_or_default(
-            ) if g > 0 else initial_guess_sgmt[g + 1].theta_or_default()), initial_guess_sgmt[g + 1].theta_or(initial_guess_sgmt[g - 1].theta_or_default(
-            ) if g > 0 else initial_guess_sgmt[g + 1].theta_or_default()), interval[1] - interval[0]))
-
-        cur_samp = next_samp
+    latest_x = 0
+    latest_y = 0
+    latest_theta = 0
+    for sgmt in range(len(waypoints) - 1):
+        interval = [sum(control_interval_counts[0: sgmt]), sum(control_interval_counts[0: sgmt + 1])]
+        latest_x = waypoints[sgmt].x_or(latest_x)
+        latest_y = waypoints[sgmt].y_or(latest_y)
+        latest_theta = waypoints[sgmt].theta_or(latest_theta)
+        problem.set_initial(
+            x[interval[0] : interval[1]], 
+            np.linspace(
+                latest_x,
+                waypoints[sgmt + 1].x_or(latest_x),
+                interval[1] - interval[0]))
+        problem.set_initial(
+            y[interval[0] : interval[1]], 
+            np.linspace(
+                latest_y,
+                waypoints[sgmt + 1].y_or(latest_y),
+                interval[1] - interval[0]))
+        problem.set_initial(
+            theta[interval[0] : interval[1]], 
+            np.linspace(
+                latest_theta,
+                waypoints[sgmt + 1].theta_or(latest_theta),
+                interval[1] - interval[0]))
 
     # debug plot
     initial = {
@@ -202,9 +208,9 @@ def generate_swerve_trajectory(
     ax2 = plt.subplots()[1]
     ax2.set_xticks(timestamps)
     ax2.set_title("initial guess x")
-    ax2.twinx().plot(timestamps, initial["x"], color="black")
-    ax2.twinx().plot(timestamps, initial["vx"], color="red")
-    ax2.twinx().plot(timestamps, initial["ax"], color="pink")
+    ax2.twinx().scatter(timestamps, initial["x"], color="black")
+    ax2.twinx().scatter(timestamps, initial["vx"], color="red")
+    ax2.twinx().scatter(timestamps, initial["ax"], color="pink")
 
     problem.solver("ipopt")
     solve = problem.solve()
@@ -221,10 +227,9 @@ def generate_swerve_trajectory(
 
 # test
 test = generate_swerve_trajectory(
-    [Waypoint(1.0, 0.0, 0.0, False),# Waypoint(0.75, 0.2, None, False),
-     Waypoint(2.0, 1.0, 0.0, False)
+    [Waypoint(1.0, 0.0, 0.0, 20, False), Waypoint(0.75, 0.2, None, 20, False), Waypoint(1.0, 1.0, 3.14, 20, True), 
+     Waypoint(None, 1.5, 3.14, 20, False), Waypoint(2.0, 1.0, 0.0, 20, False)
      ],
-    [80, 40],
     [(-0.5, 0.5), (0.5, 0.5), (0.5, -0.5), (-0.5, -0.5)],
     [(-0.4, 0.4), (0.4, 0.4), (0.4, -0.4), (-0.4, -0.4)],
     20.0,
