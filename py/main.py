@@ -191,6 +191,7 @@ def generate_swerve_trajectory(
     fig = plt.figure()
     ax1 = plt.subplots()[1]
 
+    ax1.set_title("initial guess xy")
     ax1.plot(initial["x"], initial["y"])
 
     dts = initial["dt"]
@@ -200,6 +201,7 @@ def generate_swerve_trajectory(
 
     ax2 = plt.subplots()[1]
     ax2.set_xticks(timestamps)
+    ax2.set_title("initial guess x")
     ax2.twinx().plot(timestamps, initial["x"], color="black")
     ax2.twinx().plot(timestamps, initial["vx"], color="red")
     ax2.twinx().plot(timestamps, initial["ax"], color="pink")
@@ -230,7 +232,9 @@ test = generate_swerve_trajectory(
     0.05,
     4.0,
     50.0,
-    [(0, 2, False, Constraint.MAX_TRANS_VEL, 0.0), (0, 2, True, Constraint.MAX_TRANS_VEL, 0.25), (1, 1, True, Constraint.VEL_DIRECTION, -3.14)]
+    [
+        # (0, 2, False, Constraint.MAX_TRANS_VEL, 0.0), (0, 2, True, Constraint.MAX_TRANS_VEL, 0.25), (1, 1, True, Constraint.VEL_DIRECTION, -3.14)
+        ]
 )
 
 print(test)
@@ -238,6 +242,7 @@ print(test)
 fig = plt.figure()
 ax1 = plt.subplots()[1]
 
+ax1.set_title("path xy")
 ax1.plot(test["x"], test["y"])
 ax1.scatter(test["x"], test["y"])
 
