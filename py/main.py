@@ -1,3 +1,4 @@
+from enum import Enum
 import casadi as ca
 import numpy as np
 import matplotlib.pyplot as plt
@@ -48,7 +49,7 @@ def solve_net_torque(theta, f_x, f_y, module_translations):
     return sum(map(tau,
                    range(0, len(module_translations))))
 
-
+Constraint = Enum('Constraint', ['MAX_TRANS_VEL', 'MAX_ANG_VEL', 'VEL_DIRECTION'])
 def generate_swerve_trajectory(
         waypoints: list[Waypoint],
         control_interval_counts: list[int],
@@ -60,6 +61,7 @@ def generate_swerve_trajectory(
         wheel_radius: float,
         moi: float,
         mass: float,
+        constraints: list[tuple[int, int, bool, Constraint, tuple[float, ...] | float]]
 ):
     sample_count = sum(control_interval_counts)
     bumper_radius = max(map(lambda t: math.sqrt(
@@ -91,8 +93,8 @@ def generate_swerve_trajectory(
     # minimize total time
     problem.minimize(ca.sum1(dt))
     # dont go back in time
-    problem.subject_to(dt[:] >= 0)
-    problem.subject_to(dt[:] <= 0.05)
+    problem.subject_to(dt[:] >= 0.01)
+    # problem.subject_to(dt[:] <= 0.05)
 
     # kinematics constraints
     apply_derivative_constraint(problem, x, vx, dt)
@@ -131,6 +133,24 @@ def generate_swerve_trajectory(
             problem.subject_to(y[sample] == waypoints[i].y)
         if waypoints[i].theta != None:
             problem.subject_to(theta[sample] == waypoints[i].theta)
+    
+    # apply constraints
+    for constraint in constraints:
+        intervals = []
+        # sgmt
+        if constraint[2]:
+            intervals = range(sum(control_interval_counts[0:constraint[0]]), sum(control_interval_counts[0:constraint[1]]))
+        else:
+            intervals = [sum(control_interval_counts[0:constraint[0]]), sum(control_interval_counts[0:constraint[1]]) - 1]
+        print(intervals)
+        for i in intervals:
+            if constraint[3] == Constraint.MAX_TRANS_VEL:
+                problem.subject_to(vx[i]**2 + vy[i]**2 <= constraint[4]**2)
+            elif constraint[3] == Constraint.MAX_ANG_VEL:
+                problem.subject_to(omega[i]**2 <= constraint[4]**2)
+            elif constraint[3] == Constraint.VEL_DIRECTION:
+                problem.subject_to(ca.atan2(vy[i], vx[i]) == constraint)
+                
 
     # set initial guess
     cur_samp = 0
@@ -198,36 +218,38 @@ def generate_swerve_trajectory(
 
 
 # test
-initial = generate_swerve_trajectory(
-    [Waypoint(0.0, 0.0, 0.0), Waypoint(-0.5, None, None),
-     Waypoint(1.0, 1.0, 0.0)],
+test = generate_swerve_trajectory(
+    [Waypoint(0.0, 0.0, 0.0), Waypoint(0.75, 0.2, None),
+     Waypoint(2.0, 1.0, 0.0)],
     [80, 40],
-    [[], [Waypoint(-0.5, 0.0, 0.0), Waypoint(0.0, 0.75, 0.0)], []],
+    [[], [], []],
     [(-0.5, 0.5), (0.5, 0.5), (0.5, -0.5), (-0.5, -0.5)],
     [(-0.4, 0.4), (0.4, 0.4), (0.4, -0.4), (-0.4, -0.4)],
-    4.0,
-    10.0,
+    20.0,
+    5.0,
     0.05,
     4.0,
-    50.0
+    50.0,
+    [(0, 2, False, Constraint.MAX_TRANS_VEL, 0.0), (0, 2, True, Constraint.MAX_TRANS_VEL, 0.25), (1, 1, True, Constraint.VEL_DIRECTION, -3.14)]
 )
 
-print(initial)
+print(test)
 
 fig = plt.figure()
 ax1 = plt.subplots()[1]
 
-ax1.plot(initial["x"], initial["y"])
+ax1.plot(test["x"], test["y"])
+ax1.scatter(test["x"], test["y"])
 
-dts = initial["dt"]
+dts = test["dt"]
 timestamps = [0]
 for i in range(1, len(dts)):
     timestamps.append(sum(dts[0:i]))
 
 ax2 = plt.subplots()[1]
 ax2.set_xticks(timestamps)
-ax2.twinx().plot(timestamps, initial["x"], color="black")
-ax2.twinx().plot(timestamps, initial["vx"], color="red")
-ax2.twinx().plot(timestamps, initial["ax"], color="pink")
+ax2.twinx().plot(timestamps, test["x"], color="black")
+ax2.twinx().plot(timestamps, test["vx"], color="red")
+# ax2.twinx().plot(timestamps, test["ax"], color="pink")
 
 plt.show()
