@@ -96,7 +96,7 @@ def generate_swerve_trajectory(
     # minimize total time
     problem.minimize(ca.sum1(dt))
     # dont go back in time
-    problem.subject_to(dt[:] >= 0.00)
+    problem.subject_to(dt[:] >= 10e-10)
     problem.subject_to(dt[:] <= 0.05)
 
     # kinematics constraints
@@ -216,6 +216,9 @@ def generate_swerve_trajectory(
 
     problem.solver("ipopt")
     solve = problem.solve()
+    timestamps = [0]
+    for i in range(1, len(solve.value(dt))):
+        timestamps.append(sum(solve.value(dt)[0:i]))
     return {
         "dt": solve.value(dt),
         "timestamp": timestamps,
@@ -283,16 +286,16 @@ def update_anim(frame):
     mod_frame += 1
     mod_frame = mod_frame % (((test["timestamp"][-1]) * framerate) - 1)
     time = mod_frame/framerate
-    s = 0# np.argmin(np.array(map(lambda a: abs(a - time), test["timestamp"])))
+    s = 0
     s_err = math.inf
-    for i, t in enumerate(test["timestamp"]):
-        if abs(time - t) < s_err:
-            s_err = abs(time - t)
+    for i, timestamp in enumerate(test["timestamp"]):
+        if abs(time - timestamp) <= s_err:
+            s_err = abs(time - timestamp)
             s = i
     if test["timestamp"][s] > time:
         s -= 1
     t = (time - test["timestamp"][s]) / (test["timestamp"][s + 1] - test["timestamp"][s])
-    print("time " + '{0:.2f}'.format(time) + "; frame " + '{0:.0f}'.format(mod_frame) + "; sample " + str(s) + "; t " + '{0:.2f}'.format(t))
+    # print("time " + '{0:.2f}'.format(time) + "; s stamp " + '{0:.2f}'.format(test["timestamp"][s]) + "; frame " + '{0:.0f}'.format(mod_frame) + "; sample " + str(s) + "; t " + '{0:.2f}'.format(t))
     box.set_xy((lerp(test["x"][s], test["x"][s + 1], t) - bumper_trans[1][0], lerp(test["y"][s], test["y"][s + 1], t) - bumper_trans[1][1]))
     box.set_angle(lerp(test["theta"][s], test["theta"][s + 1], t) * 180.0 / math.pi)
     ax_anim.add_patch(box)
@@ -302,7 +305,8 @@ traj_anim = anim.FuncAnimation(fig=afig,
                          func=update_anim,
                                 frames=len(test["x"]), interval=1000/framerate, blit=False)
 
-ax4 = plt.subplots()[1]
-ax4.plot(test["timestamp"], test["dt"])
+ax_dt = plt.subplots()[1]
+ax_dt.set_title("dts")
+ax_dt.plot(test["timestamp"], test["dt"])
 
 plt.show()
