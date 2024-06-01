@@ -93,7 +93,7 @@ def generate_swerve_trajectory(
     problem.minimize(ca.sum1(dt))
     # dont go back in time
     problem.subject_to(dt[:] >= 10e-10)
-    problem.subject_to(dt[:] <= 0.05)
+    problem.subject_to(dt[:] <= 0.1)
 
     # kinematics constraints
     apply_derivative_constraint(problem, x, vx, dt)
@@ -180,7 +180,7 @@ def generate_swerve_trajectory(
                 waypoints[sgmt + 1].theta_or(latest_theta),
                 interval[1] - interval[0]))
 
-    # debug plot
+    # debug initial values
     timestamps = [0]
     for i in range(1, len(problem.debug.value(dt, problem.initial()))):
         timestamps.append(sum(problem.debug.value(dt, problem.initial())[0:i]))
@@ -195,7 +195,8 @@ def generate_swerve_trajectory(
         "ay": problem.debug.value(ay, problem.initial()),
     }
 
-    problem.solver("ipopt")
+    # final solve!
+    problem.solver("ipopt", {}, {"tol": 10e-4})
     solve = problem.solve()
     timestamps = [0]
     for i in range(1, len(solve.value(dt))):
