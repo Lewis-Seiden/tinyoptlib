@@ -88,3 +88,5 @@ def demo():
 
     print(test)
     show_debug_plots(test, bumper_trans)
+
+demo()
