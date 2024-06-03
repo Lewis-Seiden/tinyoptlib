@@ -9,7 +9,7 @@ import math
 import solver as solver
 from solver import Waypoint
 
-def show_debug_plots(generated):
+def show_debug_plots(generated, bumper_trans):
     fig = plt.figure()
     ax_xy = plt.subplots()[1]
 
@@ -87,4 +87,4 @@ def demo():
     )
 
     print(test)
-    show_debug_plots(test)
+    show_debug_plots(test, bumper_trans)
