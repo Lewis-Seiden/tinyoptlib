@@ -1,0 +1,3 @@
+__pycache__
+# i use this to test the json parser, but it probably doesnt need to be included
+data.out
