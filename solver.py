@@ -1,5 +1,5 @@
 from enum import Enum
-import casadi as ca
+import jormungandr as jmg
 import numpy as np
 
 import math
@@ -32,12 +32,12 @@ class Waypoint:
 
 
 def rotate_vector_by_expr(x, y, theta):
-    return [x * ca.cos(theta) - y * ca.sin(theta),
-            x * ca.sin(theta) + y * ca.cos(theta)]
+    return [x * jmg.autodiff.cos(theta) - y * jmg.autodiff.sin(theta),
+            x * jmg.autodiff.sin(theta) + y * jmg.autodiff.cos(theta)]
 
 
-def apply_derivative_constraint(opti, x: ca.MX, xdot: ca.MX, dt: ca.MX):
-    for i in range(1, x.size1()):
+def apply_derivative_constraint(opti, x, xdot, dt):
+    for i in range(1, x.rows()):
         opti.subject_to(x[i] == x[i - 1] + (xdot[i] * dt[i]))
 
 
@@ -67,33 +67,33 @@ def generate_swerve_trajectory(
         t[0] * t[0] + t[1] * t[1]), bumper_translations))
     max_wheel_force = max_torque / wheel_radius
 
-    problem = ca.Opti()
+    problem = jmg.optimization.OptimizationProblem()
 
     # state variables
-    dt = problem.variable(sample_count)
-    problem.set_initial(dt, [0.1] * sample_count)
+    dt = problem.decision_variable(sample_count)
+    dt.set_value([0.1] * sample_count)
 
-    x = problem.variable(sample_count)
-    y = problem.variable(sample_count)
-    theta = problem.variable(sample_count)
+    x = problem.decision_variable(sample_count)
+    y = problem.decision_variable(sample_count)
+    theta = problem.decision_variable(sample_count)
 
-    vx = problem.variable(sample_count)
-    vy = problem.variable(sample_count)
-    omega = problem.variable(sample_count)
+    vx = problem.decision_variable(sample_count)
+    vy = problem.decision_variable(sample_count)
+    omega = problem.decision_variable(sample_count)
 
-    ax = problem.variable(sample_count)
-    ay = problem.variable(sample_count)
-    alpha = problem.variable(sample_count)
+    ax = problem.decision_variable(sample_count)
+    ay = problem.decision_variable(sample_count)
+    alpha = problem.decision_variable(sample_count)
 
     # Module forces
-    f_x = problem.variable(sample_count, len(module_translations))
-    f_y = problem.variable(sample_count, len(module_translations))
+    f_x = problem.decision_variable(sample_count, len(module_translations))
+    f_y = problem.decision_variable(sample_count, len(module_translations))
 
     # minimize total time
-    problem.minimize(ca.sum1(dt))
+    problem.minimize(sum(dt))
     # dont go back in time
-    problem.subject_to(dt[:] >= 10e-10)
-    problem.subject_to(dt[:] <= 0.1)
+    problem.subject_to(dt >= 10e-10)
+    problem.subject_to(dt <= 0.1)
 
     # kinematics constraints
     apply_derivative_constraint(problem, x, vx, dt)
@@ -104,14 +104,14 @@ def generate_swerve_trajectory(
     apply_derivative_constraint(problem, omega, alpha, dt)
 
     # force must equal mass time acceleration
-    for samp in range(dt.size(1)):
-        problem.subject_to(ca.sum2(f_x)[samp] == mass * ax[samp])
-        problem.subject_to(ca.sum2(f_y)[samp] == mass * ay[samp])
+    for samp in range(dt.rows()):
+        problem.subject_to(sum(f_x[samp, :]) == mass * ax[samp])
+        problem.subject_to(sum(f_y[samp, :]) == mass * ay[samp])
         problem.subject_to(solve_net_torque(
             theta[samp], f_x[samp, :], f_x[samp, :], module_translations) == moi * alpha[samp])
 
     # each module must obey speed and force limits
-    for samp in range(dt.size1()):
+    for samp in range(dt.rows()):
         [vx_prime, vy_prime] = rotate_vector_by_expr(
             vx[samp], vy[samp], -theta[samp])
         vx_m = list(map(lambda m: vx_prime -
@@ -149,7 +149,7 @@ def generate_swerve_trajectory(
             elif constraint[3] == Constraint.MAX_ANG_VEL:
                 problem.subject_to(omega[i]**2 <= constraint[4]**2)
             elif constraint[3] == Constraint.VEL_DIRECTION:
-                problem.subject_to(ca.atan2(vy[i], vx[i]) == constraint)
+                problem.subject_to(math.atan2(vy[i], vx[i]) == constraint)
                 
 
     # set initial guess
@@ -161,20 +161,17 @@ def generate_swerve_trajectory(
         latest_x = waypoints[sgmt].x_or(latest_x)
         latest_y = waypoints[sgmt].y_or(latest_y)
         latest_theta = waypoints[sgmt].theta_or(latest_theta)
-        problem.set_initial(
-            x[interval[0] : interval[1]], 
+        x[interval[0] : interval[1]].set_value( 
             np.linspace(
                 latest_x,
                 waypoints[sgmt + 1].x_or(latest_x),
                 interval[1] - interval[0]))
-        problem.set_initial(
-            y[interval[0] : interval[1]], 
+        y[interval[0] : interval[1]].set_value( 
             np.linspace(
                 latest_y,
                 waypoints[sgmt + 1].y_or(latest_y),
                 interval[1] - interval[0]))
-        problem.set_initial(
-            theta[interval[0] : interval[1]], 
+        theta[interval[0] : interval[1]].set_value( 
             np.linspace(
                 latest_theta,
                 waypoints[sgmt + 1].theta_or(latest_theta),
@@ -182,36 +179,35 @@ def generate_swerve_trajectory(
 
     # debug initial values
     timestamps = [0]
-    for i in range(1, len(problem.debug.value(dt, problem.initial()))):
-        timestamps.append(sum(problem.debug.value(dt, problem.initial())[0:i]))
+    for i in range(1, dt.rows()):
+        timestamps.append(sum(dt.value()[0:i]))
     initial = {
-        "dt": problem.debug.value(dt, problem.initial()),
+        "dt": dt.value(),
         "timestamp": timestamps,
-        "x":  problem.debug.value(x, problem.initial()),
-        "y":  problem.debug.value(y, problem.initial()),
-        "vx": problem.debug.value(vx, problem.initial()),
-        "vy": problem.debug.value(vy, problem.initial()),
-        "ax": problem.debug.value(ax, problem.initial()),
-        "ay": problem.debug.value(ay, problem.initial()),
+        "x":  x.value(),
+        "y":  y.value(),
+        "vx": vx.value(),
+        "vy": vy.value(),
+        "ax": ax.value(),
+        "ay": ay.value(),
     }
 
     # final solve!
-    problem.solver("ipopt", {}, {"tol": 10e-4})
-    solve = problem.solve()
+    solve = problem.solve(tolerance=10e-4)
     timestamps = [0]
-    for i in range(1, len(solve.value(dt))):
-        timestamps.append(sum(solve.value(dt)[0:i]))
+    for i in range(1, len(dt.value())):
+        timestamps.append(sum(dt.value()[0:i]))
     return {
-        "dt": solve.value(dt),
+        "dt": dt.value(),
         "timestamp": timestamps,
-        "x": solve.value(x),
-        "y": solve.value(y),
-        "theta": solve.value(theta),
-        "vx": solve.value(vx),
-        "vy": solve.value(vy),
-        "omega": solve.value(omega),
-        "ax": solve.value(ax),
-        "ay": solve.value(ay),
-        "alpha": solve.value(alpha),
+        "x": x.value(),
+        "y": y.value(),
+        "theta": theta.value(),
+        "vx": vx.value(),
+        "vy": vy.value(),
+        "omega": omega.value(),
+        "ax": ax.value(),
+        "ay": ay.value(),
+        "alpha": alpha.value(),
         "initial": initial
     }

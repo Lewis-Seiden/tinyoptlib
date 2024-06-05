@@ -1,3 +1,4 @@
 casadi
 matplotlib
 numpy
+sleipnirgroup-jormungandr
